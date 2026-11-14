@@ -42,9 +42,9 @@ enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 @export var turn_speed: float = 7.0
 @export var gravity_scale: float = 1.0
 ## Range it tries to sit at while shooting.
-@export var preferred_distance: float = 7.0
+@export var preferred_distance: float = 5.0
 ## If the player gets closer than this, the enemy backs away.
-@export var retreat_distance: float = 4.0
+@export var retreat_distance: float = 3.0
 
 @export_group("Combat")
 @export var attack_range: float = 12.0
@@ -57,11 +57,17 @@ enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 ## Height above the player origin that the enemy aims for.
 @export var aim_height: float = 0.25
 ## Random deviation applied to each shot, in degrees. 0 = perfect accuracy.
-@export var aim_inaccuracy: float = 2.0
+@export var aim_inaccuracy: float = 1.0
 @export var muzzle_path: NodePath = ^"Muzzle"
 @export var visual_path: NodePath = ^"Visual"
 ## How much the visual grows while charging a shot (1.0 = no pulse).
 @export var charge_pulse: float = 0.12
+## How far sideways the enemy walks when a component blocks its path.
+@export var avoid_probe_length: float = 1.5
+## How long that sideways detour lasts before it heads for the player again.
+@export var avoid_time: float = 0.7
+## Seconds of getting nowhere before the enemy assumes it is wedged.
+@export var stuck_time: float = 0.45
 
 @export_group("Health")
 @export var max_health: float = 120.0
@@ -74,6 +80,9 @@ var health: float = 0.0
 
 var _charge_left: float = 0.0
 var _cooldown_left: float = 0.0
+var _avoid_left: float = 0.0
+var _avoid_dir: Vector3 = Vector3.ZERO
+var _stuck_time: float = 0.0
 var _scan_left: float = 0.0
 var _cached_player: Node3D = null
 var _muzzle: Node3D = null
@@ -259,7 +268,22 @@ func _process_engage(delta: float) -> void:
 	_face_direction(flat_offset, delta)
 
 	if distance > preferred_distance:
-		_move_flat(flat_offset.normalized(), chase_speed, delta)
+		var desired := flat_offset.normalized()
+		# Components are tall walls on this board; detour instead of wedging.
+		if _avoid_left > 0.0:
+			_avoid_left -= delta
+			_move_flat(_avoid_dir, chase_speed, delta)
+		else:
+			if _is_against_wall() or _flat_speed(velocity) < 0.5:
+				_stuck_time += delta
+			else:
+				_stuck_time = 0.0
+			if _stuck_time >= stuck_time:
+				_stuck_time = 0.0
+				_start_avoid(desired)
+				_move_flat(_avoid_dir, chase_speed, delta)
+			else:
+				_move_flat(desired, chase_speed, delta)
 	elif distance < retreat_distance:
 		_move_flat(-flat_offset.normalized(), retreat_speed, delta)
 	else:
@@ -344,6 +368,36 @@ func _update_pulse(delta: float) -> void:
 		_visual.scale = _visual_scale * (1.0 + charge_pulse * progress)
 	else:
 		_visual.scale = _visual.scale.lerp(_visual_scale, clampf(10.0 * delta, 0.0, 1.0))
+
+
+func _start_avoid(desired: Vector3) -> void:
+	var left := desired.rotated(Vector3.UP, PI * 0.5)
+	var right := desired.rotated(Vector3.UP, -PI * 0.5)
+	_avoid_dir = left if _clearance(left) >= _clearance(right) else right
+	_avoid_left = avoid_time
+
+
+## Free distance in a direction, capped at `avoid_probe_length`.
+func _clearance(direction: Vector3) -> float:
+	var from := global_position + Vector3.UP * 0.25
+	var query := PhysicsRayQueryParameters3D.create(from, from + direction * avoid_probe_length)
+	query.collision_mask = 1
+	query.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return avoid_probe_length
+	return from.distance_to(hit.position)
+
+
+func _is_against_wall() -> bool:
+	for index in get_slide_collision_count():
+		if absf(get_slide_collision(index).get_normal().y) < 0.5:
+			return true
+	return false
+
+
+func _flat_speed(velocity_3d: Vector3) -> float:
+	return Vector2(velocity_3d.x, velocity_3d.z).length()
 
 
 func _flat_offset_to(point: Vector3) -> Vector3:

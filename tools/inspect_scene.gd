@@ -1,44 +1,48 @@
 extends SceneTree
 
 var _scene: Node3D
-var _frame := 0
+var _tick := 0
 
 
 func _initialize() -> void:
-	var packed := load("res://map/haven_map.tscn") as PackedScene
-	_scene = packed.instantiate() as Node3D
+	_scene = (load("res://map/haven_map.tscn") as PackedScene).instantiate() as Node3D
 	root.add_child(_scene)
+	var charger := _scene.get_node("ChargerEnemy")
+	charger.state_changed.connect(_on_charger_state)
 
 
-func _process(_delta: float) -> bool:
-	_frame += 1
+func _on_charger_state(previous: int, current: int) -> void:
+	var charger := _scene.get_node("ChargerEnemy") as CharacterBody3D
+	var player := _scene.get_node("Player") as Node3D
+	print("   charger ", previous, "->", current, " pos ", charger.global_position, " vel ", charger.velocity,
+		" dist ", snappedf(charger.global_position.distance_to(player.global_position), 0.01),
+		" clear ", charger._has_clear_path(player.global_position), " dir ", charger._dash_direction,
+		" slides ", charger.get_slide_collision_count())
 
-	if _frame == 2:
+
+func _physics_process(_delta: float) -> bool:
+	_tick += 1
+
+	if _tick == 5:
 		var model := _scene.get_node_or_null("Model") as Node3D
 		var merged := _scene.get_node_or_null("ModelMerged") as MeshInstance3D
-		print("MODEL visible=", model.visible, " children=", model.get_child_count())
-		if merged != null and merged.mesh != null:
-			print("MERGED surfaces=", merged.mesh.get_surface_count(), " aabb=", merged.get_aabb().size)
-		else:
-			print("MERGED MISSING")
-		var remaining := 0
+		var collision := _scene.get_node_or_null("ModelCollision") as StaticBody3D
+		var visible_meshes := 0
 		for node in _scene.find_children("*", "MeshInstance3D", true, false):
-			if not (node as MeshInstance3D).visible:
-				continue
-			remaining += 1
-		print("VISIBLE mesh instances in scene=", remaining)
-		var coll := _scene.get_node_or_null("Model/ModelCollision")
-		print("COLLISION body=", coll != null, " shapes=", coll.get_child_count() if coll else -1)
+			if (node as MeshInstance3D).visible:
+				visible_meshes += 1
+		print("MAP model_visible=", model.visible,
+			" merged_surfaces=", merged.mesh.get_surface_count() if merged and merged.mesh else -1,
+			" collision_shapes=", collision.get_child_count() if collision else -1,
+			" visible_meshes=", visible_meshes)
 
-	if _frame % 60 == 0:
+	if _tick % 30 == 0:
 		var player := _scene.get_node_or_null("Player") as Node3D
 		var charger := _scene.get_node_or_null("ChargerEnemy") as Node3D
 		var dip := _scene.get_node_or_null("DipEnemy") as Node3D
-		print("frame ", _frame,
-			" | player ", player.global_position if player else "none", " hp ", player.health if player else -1,
-			" | charger ", charger.global_position if charger else "none", " ", charger.state if charger else "",
-			" | dip ", dip.global_position if dip else "none", " ", dip.state if dip else "")
+		print("t=", _tick / 60.0, "s hp ", player.health,
+			" player ", player.global_position,
+			" | charger state ", charger.state, " aabb_dist ", snappedf(charger.global_position.distance_to(player.global_position), 0.01),
+			" | dip state ", dip.state)
 
-	if _frame >= 480:
-		return true
-	return false
+	return _tick >= 420

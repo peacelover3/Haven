@@ -130,7 +130,7 @@ transform = Transform3D(-0.017594, 0, 0, 0, 0.017594, 0, 0, 0, -0.017594, 0, 0.2
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -0.13)
 
 [node name="ChargerEnemy" parent="." instance=ExtResource("6_charger")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.2, 0.8, -1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0.8, 4.8)
 
 [node name="DipEnemy" parent="." instance=ExtResource("7_dip")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 0.8, -3)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 0.8, 6)

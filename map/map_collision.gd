@@ -134,16 +134,23 @@ func _merge_parts(parent: Node3D, parts: Array[MeshInstance3D], to_parent: Trans
 	merged.name = merged_mesh_name
 	merged.mesh = combined
 	merged.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	parent.add_child(merged)
 
-	# Only the merged copy is drawn from now on.
-	visible = false
-	for mesh_instance in parts:
-		mesh_instance.queue_free()
+	# The model is still setting up its own children while _ready runs, so the
+	# swap has to wait for the next idle frame.
+	_activate_merged.call_deferred(parent, merged, parts)
 
 	print("%s: merged %d parts into %d surfaces in %d ms" % [
 		name, parts.size(), combined.get_surface_count(), Time.get_ticks_msec() - started
 	])
+
+
+func _activate_merged(parent: Node3D, merged: MeshInstance3D, parts: Array[MeshInstance3D]) -> void:
+	parent.add_child(merged)
+	# Only the merged copy is drawn from now on.
+	visible = false
+	for mesh_instance in parts:
+		if is_instance_valid(mesh_instance):
+			mesh_instance.queue_free()
 
 
 func _surface_material(mesh_instance: MeshInstance3D, surface: int) -> Material:

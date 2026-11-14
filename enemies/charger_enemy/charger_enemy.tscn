@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" path="res://enemies/use/555.glb" id="2_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
-radius = 0.22
+radius = 0.2
 height = 0.5
 
 [node name="ChargerEnemy" type="CharacterBody3D"]

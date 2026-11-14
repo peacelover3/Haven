@@ -62,6 +62,12 @@ enum State { IDLE, CHASE, WINDUP, DASH, RECOVER, RETURNING, DEAD }
 @export var visual_path: NodePath = ^"Visual"
 ## How much the visual grows while winding up (1.0 = no pulse).
 @export var windup_pulse: float = 0.18
+## How far sideways the enemy walks when a component blocks its path.
+@export var avoid_probe_length: float = 1.5
+## How long that sideways detour lasts before it heads for the player again.
+@export var avoid_time: float = 0.7
+## Seconds of getting nowhere before the enemy assumes it is wedged.
+@export var stuck_time: float = 0.45
 
 @export_group("Health")
 @export var max_health: float = 80.0
@@ -76,6 +82,9 @@ var _windup_left: float = 0.0
 var _dash_left: float = 0.0
 var _recover_left: float = 0.0
 var _dash_direction: Vector3 = Vector3.FORWARD
+var _avoid_left: float = 0.0
+var _avoid_dir: Vector3 = Vector3.ZERO
+var _stuck_time: float = 0.0
 var _scan_left: float = 0.0
 var _cached_player: Node3D = null
 var _visual: Node3D = null
@@ -128,6 +137,10 @@ func _physics_process(delta: float) -> void:
 
 	if state == State.DASH:
 		_check_dash_hit()
+		# A body already touching a part ends its dash on the first frame unless
+		# we look at whether the charge actually made progress.
+		if state == State.DASH and dash_time - _dash_left > 0.06 and _flat_speed(velocity) < dash_speed * 0.35:
+			_end_dash()
 
 	_update_pulse(delta)
 
@@ -263,12 +276,35 @@ func _process_chase(delta: float) -> void:
 	var distance := flat_offset.length()
 	_face_direction(flat_offset, delta)
 
-	if distance <= charge_range and _recover_left <= 0.0:
+	# Only commit to a charge it can actually land; otherwise walk closer or
+	# around whatever is in the way.
+	if distance <= charge_range and _recover_left <= 0.0 and _has_clear_path(target.global_position):
 		_decelerate(delta)
 		_begin_windup()
 		return
 
-	_move_flat(flat_offset.normalized(), chase_speed, delta)
+	var desired := flat_offset.normalized()
+
+	# The board is covered in tall components, so a straight line at the player
+	# wedges the enemy into them. Walk sideways around the blockage first.
+	if _avoid_left > 0.0:
+		_avoid_left -= delta
+		_move_flat(_avoid_dir, chase_speed, delta)
+		return
+
+	# A wedged body reports no collision once it has stopped pushing, so the
+	# body's own speed is what tells us it is making no progress.
+	if _is_against_wall() or _flat_speed(velocity) < 0.5:
+		_stuck_time += delta
+	else:
+		_stuck_time = 0.0
+	if _stuck_time >= stuck_time:
+		_stuck_time = 0.0
+		_start_avoid(desired)
+		_move_flat(_avoid_dir, chase_speed, delta)
+		return
+
+	_move_flat(desired, chase_speed, delta)
 
 
 func _begin_windup() -> void:
@@ -306,7 +342,7 @@ func _process_dash(delta: float) -> void:
 	velocity.z = _dash_direction.z * dash_speed
 	_dash_left -= delta
 
-	if _dash_left <= 0.0 or _is_against_wall():
+	if _dash_left <= 0.0:
 		_end_dash()
 
 
@@ -362,11 +398,55 @@ func _update_pulse(delta: float) -> void:
 		_visual.scale = _visual.scale.lerp(_visual_scale, clampf(10.0 * delta, 0.0, 1.0))
 
 
+## True when nothing blocks the enemy's body on the way to `point`.
+## Raycasting at several heights is used instead of a shape cast: when the
+## enemy is already pressed against a part, a shape cast starts inside it and
+## reports the path as blocked even where the dash would connect.
+func _has_clear_path(point: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	var exclude: Array[RID] = [get_rid()]
+	if target is CollisionObject3D:
+		exclude.append((target as CollisionObject3D).get_rid())
+
+	var heights: Array[float] = [0.12, 0.26, 0.42]
+	for height in heights:
+		var from := global_position + Vector3.UP * height
+		var query := PhysicsRayQueryParameters3D.create(from, point + Vector3.UP * height)
+		query.collision_mask = 1
+		query.exclude = exclude
+		if not space.intersect_ray(query).is_empty():
+			return false
+	return true
+
+
+func _start_avoid(desired: Vector3) -> void:
+	var left := desired.rotated(Vector3.UP, PI * 0.5)
+	var right := desired.rotated(Vector3.UP, -PI * 0.5)
+	_avoid_dir = left if _clearance(left) >= _clearance(right) else right
+	_avoid_left = avoid_time
+
+
+## Free distance in a direction, capped at `avoid_probe_length`.
+func _clearance(direction: Vector3) -> float:
+	var from := global_position + Vector3.UP * 0.25
+	var query := PhysicsRayQueryParameters3D.create(from, from + direction * avoid_probe_length)
+	query.collision_mask = 1
+	query.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return avoid_probe_length
+	return from.distance_to(hit.position)
+
+
 func _is_against_wall() -> bool:
 	for index in get_slide_collision_count():
 		if absf(get_slide_collision(index).get_normal().y) < 0.5:
 			return true
 	return false
+
+
+func _flat_speed(velocity_3d: Vector3) -> float:
+	return Vector2(velocity_3d.x, velocity_3d.z).length()
 
 
 func _flat_offset_to(point: Vector3) -> Vector3:

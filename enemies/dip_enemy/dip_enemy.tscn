@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" path="res://enemies/dip_enemy/heavy_bolt.tscn" id="3_projectile"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
-radius = 0.14
+radius = 0.12
 height = 0.58
 
 [node name="DipEnemy" type="CharacterBody3D"]
