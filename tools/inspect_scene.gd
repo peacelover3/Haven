@@ -28,4 +28,4 @@ func _physics_process(_delta: float) -> bool:
 			" post_dist ", snappedf(Vector2(charger.global_position.x - post.x, charger.global_position.z - post.z).length(), 0.01),
 			" | dip state ", dip.state, " pos ", dip.global_position)
 
-	return _tick >= 360
+	return _tick >= 700
