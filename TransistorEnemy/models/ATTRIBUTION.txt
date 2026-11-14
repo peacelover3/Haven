@@ -1,0 +1,9 @@
+mosfet-P55NF06L
+Author / attribution: hasecilu
+Source: https://github.com/FreeCAD/FreeCAD-library/blob/be5e71491051cef75da46831b6fd77c6313cb497/Electronics%20Parts/Transistors/mosfet-P55NF06L.fcstd
+License: CC-BY-3.0 — https://creativecommons.org/licenses/by/3.0/
+
+Original engineering files are preserved without edits. NASJI prepared this distribution package and preview. No endorsement by the original creator is implied. Retain this attribution and license when sharing or adapting.
+
+Distributed by NASJI — https://nasji.com
+Use software supporting the included formats. Verify units, dimensions and design suitability in your CAD/BIM application. These examples are not certified construction or manufacturing documents.

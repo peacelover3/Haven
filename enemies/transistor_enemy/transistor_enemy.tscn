@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://enemies/transistor_enemy/transistor_enemy.gd" id="1_enemy"]
+[ext_resource type="PackedScene" path="res://models/transistors.glb" id="2_model"]
+[ext_resource type="PackedScene" path="res://enemies/transistor_enemy/energy_projectile.tscn" id="3_projectile"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.3
+height = 1.6
+
+[node name="TransistorEnemy" type="CharacterBody3D"]
+script = ExtResource("1_enemy")
+projectile_scene = ExtResource("3_projectile")
+muzzle_path = NodePath("Muzzle")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Visual" type="Node3D" parent="."]
+transform = Transform3D(-0.056, 0, 0, 0, 0.056, 0, 0, 0, -0.056, 0, 0.7313, 0)
+
+[node name="Model" parent="Visual" instance=ExtResource("2_model")]
+
+[node name="Muzzle" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, -0.42)
