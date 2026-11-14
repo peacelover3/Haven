@@ -4,18 +4,20 @@ extends CharacterBody3D
 ##
 ## Behaviour:
 ##   IDLE      -> waits at its post.
-##   ENGAGE    -> walks at the player until it is within `attack_range`, and
-##                backs off again if the player closes inside
-##                `retreat_distance`.
+##   ENGAGE    -> holds its ground. It only shuffles slowly towards the player
+##                and never backs away, staying within `leash_radius` of its
+##                post the whole time.
 ##   CHARGE    -> holds still, faces the player and builds up a shot for
 ##                `charge_time` (the visual pulses).
 ##   RETURNING -> the player escaped; walks back to its post.
 ##   DEAD      -> health reached zero; stops acting and despawns.
 ##
-## Shots are slow but hit hard: `projectile_damage` is far above the transistor
-## enemy's bolt, and the bolt itself is the big heavy one from `heavy_bolt.tscn`.
-## Damage is dealt by the projectile calling `take_damage(amount)` on the first
-## body it hits.
+## It is a gun emplacement, not a chaser: it shoots only what it can actually
+## see (see `_has_clear_path`) inside `attack_range`, and then only once every
+## `attack_cooldown`. Shots are slow but hit hard: `projectile_damage` is far
+## above the transistor enemy's bolt, and the bolt itself is the big heavy one
+## from `heavy_bolt.tscn`. Damage is dealt by the projectile calling
+## `take_damage(amount)` on the first body it hits.
 
 signal player_detected(player: Node3D)
 signal player_lost
@@ -41,14 +43,19 @@ enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 @export var acceleration: float = 16.0
 @export var turn_speed: float = 7.0
 @export var gravity_scale: float = 1.0
-## Range it tries to sit at while shooting.
+## Range it tries to sit at while shooting. It only ever closes in towards
+## this range; it never backs away from the player.
 @export var preferred_distance: float = 5.0
-## If the player gets closer than this, the enemy backs away.
-@export var retreat_distance: float = 3.0
+## How fast it shuffles towards the player, in metres per second. Keep this
+## well below `chase_speed` so it stays put instead of chasing.
+@export var shuffle_speed: float = 1.1
+## How far from its post it may wander. Once it has shuffled this far it stops
+## and just keeps shooting.
+@export var leash_radius: float = 1.5
 
 @export_group("Combat")
-@export var attack_range: float = 12.0
-@export var attack_cooldown: float = 2.2
+@export var attack_range: float = 8.0
+@export var attack_cooldown: float = 2.6
 ## Telegraph time before the shot leaves the muzzle.
 @export var charge_time: float = 0.7
 @export var projectile_scene: PackedScene
@@ -267,29 +274,16 @@ func _process_engage(delta: float) -> void:
 	var distance := flat_offset.length()
 	_face_direction(flat_offset, delta)
 
-	if distance > preferred_distance:
-		var desired := flat_offset.normalized()
-		# Components are tall walls on this board; detour instead of wedging.
-		if _avoid_left > 0.0:
-			_avoid_left -= delta
-			_move_flat(_avoid_dir, chase_speed, delta)
-		else:
-			if _is_against_wall() or _flat_speed(velocity) < 0.5:
-				_stuck_time += delta
-			else:
-				_stuck_time = 0.0
-			if _stuck_time >= stuck_time:
-				_stuck_time = 0.0
-				_start_avoid(desired)
-				_move_flat(_avoid_dir, chase_speed, delta)
-			else:
-				_move_flat(desired, chase_speed, delta)
-	elif distance < retreat_distance:
-		_move_flat(-flat_offset.normalized(), retreat_speed, delta)
+	# Shuffle a little towards the player, but never away from it and never far
+	# from the post: this enemy is a fixed gun, not a chaser.
+	var from_post := _flat_offset_to(_spawn_transform.origin).length()
+	if distance > preferred_distance and from_post < leash_radius:
+		_move_flat(flat_offset.normalized(), shuffle_speed, delta)
 	else:
 		_decelerate(delta)
 
-	if distance <= attack_range and _cooldown_left <= 0.0:
+	# Only shoot what it can actually see, from inside its firing range.
+	if distance <= attack_range and _cooldown_left <= 0.0 and _has_clear_path(target.global_position):
 		_charge_left = maxf(charge_time, 0.0)
 		_set_state(State.CHARGE)
 
@@ -375,6 +369,25 @@ func _start_avoid(desired: Vector3) -> void:
 	var right := desired.rotated(Vector3.UP, -PI * 0.5)
 	_avoid_dir = left if _clearance(left) >= _clearance(right) else right
 	_avoid_left = avoid_time
+
+
+## True when nothing blocks a shot at `point`. Checked at a few heights so low
+## parts still stop a bolt that would clip them.
+func _has_clear_path(point: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	var exclude: Array[RID] = [get_rid()]
+	if target is CollisionObject3D:
+		exclude.append((target as CollisionObject3D).get_rid())
+
+	var heights: Array[float] = [0.12, 0.26, 0.4]
+	for height in heights:
+		var from := global_position + Vector3.UP * height
+		var query := PhysicsRayQueryParameters3D.create(from, point + Vector3.UP * height)
+		query.collision_mask = 1
+		query.exclude = exclude
+		if not space.intersect_ray(query).is_empty():
+			return false
+	return true
 
 
 ## Free distance in a direction, capped at `avoid_probe_length`.

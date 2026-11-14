@@ -1,7 +1,6 @@
 extends Node3D
 
-## Bakes a box collider for every visible part of the map model and merges the
-## model's thousands of tiny parts into a handful of draw calls.
+## Builds collision for the map model and swaps in its merged mesh.
 ##
 ## The imported Arduino model is a composite of hundreds of small meshes
 ## (header pins, chips, USB shell, capacitors...). Walking on it with a single
@@ -9,12 +8,13 @@ extends Node3D
 ## space, under a single StaticBody3D. Colliders are generated at runtime
 ## because the mesh is imported, not authored in this project.
 ##
-## The same import costs roughly one draw call per surface: this copy of the
-## model has ~1000 MeshInstance3D nodes with ~10k surfaces between them, so the
-## GPU is asked to draw the board ten thousand times per frame (and again for
-## the shadow map). The parts are merged into one mesh per material, which
-## brings the map down to a few dozen draw calls. The originals are then
-## hidden, so only the merged copy is rendered.
+## Rendering: this copy of the model has ~1000 MeshInstance3D nodes with ~10k
+## surfaces between them, so the GPU is asked to draw the board ten thousand
+## times per frame (and again for the shadow map). `merged_mesh` is the same
+## geometry with one surface per material: 23 draw calls instead of 10,235.
+## It is baked ahead of time by tools/bake_map.gd, because reading mesh data
+## back from the renderer takes seconds while the game is running. Re-run that
+## script after the model changes.
 ##
 ## Attach to the model root. The generated body is a sibling of it, so scaling
 ## or moving the model keeps the colliders correct.
@@ -32,9 +32,9 @@ extends Node3D
 ## Colliders thinner than this are thickened, so characters and bolts do not
 ## slip through single-sided surfaces.
 @export var min_thickness: float = 0.08
-## Combine the model's parts into one mesh per material. Big rendering win;
-## turn off to inspect the original imported nodes.
-@export var merge_meshes: bool = true
+## Baked copy of the model with one surface per material, assigned in the scene.
+## Generate it with `godot --headless --path . --script res://tools/bake_map.gd`.
+@export var merged_mesh: ArrayMesh
 ## Name of the node that holds the merged copy of the model.
 @export var merged_mesh_name: String = "ModelMerged"
 
@@ -52,8 +52,7 @@ func _ready() -> void:
 
 	var to_parent := parent.global_transform.affine_inverse()
 
-	# Collect the parts once; both the colliders and the merged mesh read from
-	# this list, and the originals are dropped afterwards.
+	# Collected once: the colliders and the merged copy both read from this list.
 	var parts: Array[MeshInstance3D] = []
 	for node in find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := node as MeshInstance3D
@@ -61,8 +60,11 @@ func _ready() -> void:
 			parts.append(mesh_instance)
 
 	_build_colliders(parent, parts, to_parent)
-	if merge_meshes:
-		_merge_parts(parent, parts, to_parent)
+
+	if merged_mesh != null:
+		_use_merged_mesh(parent, parts)
+	else:
+		push_warning("%s: no baked merged mesh assigned, drawing every part separately. Run tools/bake_map.gd." % name)
 
 
 func _build_colliders(parent: Node3D, parts: Array[MeshInstance3D], to_parent: Transform3D) -> void:
@@ -97,14 +99,30 @@ func _build_colliders(parent: Node3D, parts: Array[MeshInstance3D], to_parent: T
 	parent.add_child.call_deferred(body)
 
 
-## Merges every part into one mesh per (material, vertex format) pair, then
-## hides the original model. Geometry is baked into the parent's space, matching
-## the generated colliders.
-func _merge_parts(parent: Node3D, parts: Array[MeshInstance3D], to_parent: Transform3D) -> void:
-	var started := Time.get_ticks_msec()
+## Shows the baked mesh in place of the thousands of imported parts.
+func _use_merged_mesh(parent: Node3D, parts: Array[MeshInstance3D]) -> void:
+	var merged := MeshInstance3D.new()
+	merged.name = merged_mesh_name
+	merged.mesh = merged_mesh
+	merged.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	parent.add_child.call_deferred(merged)
+
+	# Only the merged copy is drawn from now on.
+	visible = false
+	for mesh_instance in parts:
+		mesh_instance.queue_free()
+
+
+## Merges the model into one surface per (material, vertex format) pair, in the
+## parent's space. Slow while a game is running (every surface has to be read
+## back from the renderer), so it is only called by tools/bake_map.gd.
+func build_merged_mesh(to_parent: Transform3D) -> ArrayMesh:
 	var groups: Dictionary = {}
 
-	for mesh_instance in parts:
+	for node in find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
 		var xform := to_parent * mesh_instance.global_transform
 		var mesh := mesh_instance.mesh
 		for surface in mesh.get_surface_count():
@@ -126,31 +144,7 @@ func _merge_parts(parent: Node3D, parts: Array[MeshInstance3D], to_parent: Trans
 		var tool: SurfaceTool = group["tool"]
 		tool.set_material(group["material"])
 		tool.commit(combined)
-
-	if combined.get_surface_count() == 0:
-		return
-
-	var merged := MeshInstance3D.new()
-	merged.name = merged_mesh_name
-	merged.mesh = combined
-	merged.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-
-	# The model is still setting up its own children while _ready runs, so the
-	# swap has to wait for the next idle frame.
-	_activate_merged.call_deferred(parent, merged, parts)
-
-	print("%s: merged %d parts into %d surfaces in %d ms" % [
-		name, parts.size(), combined.get_surface_count(), Time.get_ticks_msec() - started
-	])
-
-
-func _activate_merged(parent: Node3D, merged: MeshInstance3D, parts: Array[MeshInstance3D]) -> void:
-	parent.add_child(merged)
-	# Only the merged copy is drawn from now on.
-	visible = false
-	for mesh_instance in parts:
-		if is_instance_valid(mesh_instance):
-			mesh_instance.queue_free()
+	return combined
 
 
 func _surface_material(mesh_instance: MeshInstance3D, surface: int) -> Material:

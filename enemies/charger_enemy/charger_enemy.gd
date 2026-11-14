@@ -36,6 +36,17 @@ enum State { IDLE, CHASE, WINDUP, DASH, RECOVER, RETURNING, DEAD }
 @export var player_path: NodePath
 @export var scan_interval: float = 0.25
 
+@export_group("Guard")
+## Radius of the area this enemy protects, in metres. It only engages players
+## inside it and walks back to its post when they leave. 0 = guard nothing and
+## chase anywhere within the detection range.
+@export var guard_radius: float = 0.0
+## Optional node used as the guard post. Defaults to the spawn position.
+@export var guard_point_path: NodePath
+## Extra distance beyond `guard_radius` the player may stray before the enemy
+## gives up. Prevents flicker at the edge of the area.
+@export var guard_release_margin: float = 1.5
+
 @export_group("Movement")
 @export var chase_speed: float = 3.2
 @export var return_speed: float = 2.4
@@ -87,6 +98,7 @@ var _avoid_dir: Vector3 = Vector3.ZERO
 var _stuck_time: float = 0.0
 var _scan_left: float = 0.0
 var _cached_player: Node3D = null
+var _guard_point: Node3D = null
 var _visual: Node3D = null
 var _visual_scale: Vector3 = Vector3.ONE
 var _spawn_transform: Transform3D
@@ -101,6 +113,9 @@ func _ready() -> void:
 	_visual = get_node_or_null(visual_path) as Node3D
 	if _visual != null:
 		_visual_scale = _visual.scale
+	_guard_point = get_node_or_null(guard_point_path) as Node3D
+	if not guard_point_path.is_empty() and _guard_point == null:
+		push_warning("%s: guard point '%s' not found, guarding the spawn point." % [name, guard_point_path])
 	if not player_path.is_empty():
 		target = get_node_or_null(player_path) as Node3D
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
@@ -153,6 +168,23 @@ func is_alive() -> bool:
 	return not _dead
 
 
+## World position this enemy guards and returns to.
+func get_guard_position() -> Vector3:
+	if _guard_point != null and is_instance_valid(_guard_point):
+		return _guard_point.global_position
+	return _spawn_transform.origin
+
+
+## True when `point` is inside the guarded area (always true when the enemy
+## guards no particular area).
+func is_inside_guard_area(point: Vector3) -> bool:
+	if guard_radius <= 0.0:
+		return true
+	var offset := point - get_guard_position()
+	offset.y = 0.0
+	return offset.length() <= guard_radius
+
+
 # --- Health ----------------------------------------------------------------
 
 func take_damage(amount: float) -> void:
@@ -196,7 +228,7 @@ func _update_target(delta: float) -> void:
 		target = null
 
 	if target == null:
-		if player != null and _flat_distance_to(player) <= detection_radius:
+		if player != null and _flat_distance_to(player) <= detection_radius and is_inside_guard_area(player.global_position):
 			_acquire(player)
 		elif state != State.RETURNING and state != State.IDLE and state != State.DASH:
 			_set_state(State.RETURNING)
@@ -205,6 +237,15 @@ func _update_target(delta: float) -> void:
 			_release(false)
 		elif target == player and _flat_distance_to(player) > lose_target_radius:
 			_release(true)
+		elif target == player and guard_radius > 0.0 and not _inside_guard_area_with_margin(player.global_position):
+			# The player escaped the protected area; go back on duty.
+			_release(true)
+
+
+func _inside_guard_area_with_margin(point: Vector3) -> bool:
+	var offset := point - get_guard_position()
+	offset.y = 0.0
+	return offset.length() <= guard_radius + maxf(guard_release_margin, 0.0)
 
 
 func _resolve_player(delta: float) -> Node3D:
@@ -373,7 +414,7 @@ func _end_dash() -> void:
 
 
 func _process_return(delta: float) -> void:
-	var home_offset := _flat_offset_to(_spawn_transform.origin)
+	var home_offset := _flat_offset_to(get_guard_position())
 
 	if home_offset.length() <= 0.5:
 		_decelerate(delta)
