@@ -37,8 +37,6 @@ enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 @export var scan_interval: float = 0.25
 
 @export_group("Movement")
-@export var chase_speed: float = 3.4
-@export var retreat_speed: float = 3.0
 @export var return_speed: float = 2.4
 @export var acceleration: float = 16.0
 @export var turn_speed: float = 7.0
@@ -47,7 +45,7 @@ enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 ## this range; it never backs away from the player.
 @export var preferred_distance: float = 5.0
 ## How fast it shuffles towards the player, in metres per second. Keep this
-## well below `chase_speed` so it stays put instead of chasing.
+## slow so it stays put instead of chasing.
 @export var shuffle_speed: float = 1.1
 ## How far from its post it may wander. Once it has shuffled this far it stops
 ## and just keeps shooting.
@@ -69,12 +67,6 @@ enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 @export var visual_path: NodePath = ^"Visual"
 ## How much the visual grows while charging a shot (1.0 = no pulse).
 @export var charge_pulse: float = 0.12
-## How far sideways the enemy walks when a component blocks its path.
-@export var avoid_probe_length: float = 1.5
-## How long that sideways detour lasts before it heads for the player again.
-@export var avoid_time: float = 0.7
-## Seconds of getting nowhere before the enemy assumes it is wedged.
-@export var stuck_time: float = 0.45
 
 @export_group("Health")
 @export var max_health: float = 120.0
@@ -87,9 +79,6 @@ var health: float = 0.0
 
 var _charge_left: float = 0.0
 var _cooldown_left: float = 0.0
-var _avoid_left: float = 0.0
-var _avoid_dir: Vector3 = Vector3.ZERO
-var _stuck_time: float = 0.0
 var _scan_left: float = 0.0
 var _cached_player: Node3D = null
 var _muzzle: Node3D = null
@@ -364,13 +353,6 @@ func _update_pulse(delta: float) -> void:
 		_visual.scale = _visual.scale.lerp(_visual_scale, clampf(10.0 * delta, 0.0, 1.0))
 
 
-func _start_avoid(desired: Vector3) -> void:
-	var left := desired.rotated(Vector3.UP, PI * 0.5)
-	var right := desired.rotated(Vector3.UP, -PI * 0.5)
-	_avoid_dir = left if _clearance(left) >= _clearance(right) else right
-	_avoid_left = avoid_time
-
-
 ## True when nothing blocks a shot at `point`. Checked at a few heights so low
 ## parts still stop a bolt that would clip them.
 func _has_clear_path(point: Vector3) -> bool:
@@ -388,29 +370,6 @@ func _has_clear_path(point: Vector3) -> bool:
 		if not space.intersect_ray(query).is_empty():
 			return false
 	return true
-
-
-## Free distance in a direction, capped at `avoid_probe_length`.
-func _clearance(direction: Vector3) -> float:
-	var from := global_position + Vector3.UP * 0.25
-	var query := PhysicsRayQueryParameters3D.create(from, from + direction * avoid_probe_length)
-	query.collision_mask = 1
-	query.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit.is_empty():
-		return avoid_probe_length
-	return from.distance_to(hit.position)
-
-
-func _is_against_wall() -> bool:
-	for index in get_slide_collision_count():
-		if absf(get_slide_collision(index).get_normal().y) < 0.5:
-			return true
-	return false
-
-
-func _flat_speed(velocity_3d: Vector3) -> float:
-	return Vector2(velocity_3d.x, velocity_3d.z).length()
 
 
 func _flat_offset_to(point: Vector3) -> Vector3:
