@@ -48,19 +48,20 @@ enum State { IDLE, CHASE, WINDUP, DASH, RECOVER, RETURNING, DEAD }
 @export var guard_release_margin: float = 1.5
 
 @export_group("Movement")
-@export var chase_speed: float = 3.2
+@export var chase_speed: float = 2
 @export var return_speed: float = 2.4
-@export var acceleration: float = 18.0
+@export var acceleration: float = 5.0
 @export var turn_speed: float = 8.0
 @export var gravity_scale: float = 1.0
 
 @export_group("Charge attack")
 ## Gap at which the enemy commits to a charge.
-@export var charge_range: float = 4.0
+@export var charge_range: float = 3.2
 ## Telegraph time before the dash starts. The visual puffs up while winding up.
 @export var windup_time: float = 0.45
-@export var dash_speed: float = 10.0
-@export var dash_time: float = 0.32
+@export var dash_speed: float = 8.5
+## Long enough that a charge started at `charge_range` can still reach.
+@export var dash_time: float = 0.42
 ## Rest after a charge, during which it will not charge again.
 @export var dash_cooldown: float = 1.2
 ## How close the dash has to pass to count as a hit, in metres.

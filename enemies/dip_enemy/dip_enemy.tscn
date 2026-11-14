@@ -1,29 +1,33 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://cep34bk3wsywe"]
 
-[ext_resource type="Script" path="res://enemies/dip_enemy/dip_enemy.gd" id="1_enemy"]
-[ext_resource type="PackedScene" path="res://enemies/use/Integrated Circuit DIP.glb" id="2_model"]
+[ext_resource type="Script" uid="uid://cpywt3s1bifut" path="res://enemies/dip_enemy/dip_enemy.gd" id="1_enemy"]
+[ext_resource type="PackedScene" uid="uid://iqq5fcisnb25" path="res://enemies/use/Integrated Circuit DIP.glb" id="2_model"]
 [ext_resource type="PackedScene" path="res://enemies/dip_enemy/heavy_bolt.tscn" id="3_projectile"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
-radius = 0.18
-height = 0.4
+radius = 0.35
+height = 0.82
 
-[node name="DipEnemy" type="CharacterBody3D"]
+[node name="DipEnemy" type="CharacterBody3D" unique_id=1394503852]
 collision_layer = 2
-collision_mask = 1
 script = ExtResource("1_enemy")
 projectile_scene = ExtResource("3_projectile")
-muzzle_path = NodePath("Muzzle")
-visual_path = NodePath("Visual")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=832507027]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.23, 0)
 shape = SubResource("CapsuleShape3D_body")
 
-[node name="Visual" type="Node3D" parent="."]
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="." unique_id=1905116238]
+path_desired_distance = 0.25
+target_desired_distance = 0.35
+height = 0.9
+radius = 0.35
+
+[node name="Visual" type="Node3D" parent="." unique_id=1020458636]
 transform = Transform3D(0, -40, 0, 40, 0, 0, 0, 0, 40, 0, 0.1574, 0)
 
-[node name="Model" parent="Visual" instance=ExtResource("2_model")]
+[node name="Model" parent="Visual" unique_id=2093377100 instance=ExtResource("2_model")]
+transform = Transform3D(-0.030138701, 0, 2.3230064, 0, 1, 0, -2.3378823, 0, -0.029946929, 0, 0, 0)
 
-[node name="Muzzle" type="Marker3D" parent="."]
+[node name="Muzzle" type="Marker3D" parent="." unique_id=101506038]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, -0.18)

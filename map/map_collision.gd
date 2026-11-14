@@ -21,6 +21,19 @@ extends Node3D
 
 ## Turn off to fall back to whatever colliders the level already has.
 @export var enabled: bool = true
+
+@export_group("Navigation")
+## Bakes a navigation mesh over the generated colliders, so enemies can walk
+## around parts instead of into them. It is built once, at level load (~60 ms),
+## from the colliders rather than from meshes, because reading meshes back from
+## the renderer is what made the old merge so slow.
+@export var build_navigation: bool = true
+## How much clearance the baked mesh keeps from parts. Keep it at or above the
+## widest enemy body, or paths will clip corners.
+@export var nav_agent_radius: float = 0.4
+@export var nav_agent_height: float = 0.9
+@export var nav_max_slope: float = 45.0
+@export var nav_cell_size: float = 0.1
 ## Physics layer the generated colliders live on.
 @export_flags_3d_physics var collision_layer: int = 1
 ## Parts smaller than this (in world metres, largest side) get no collider.
@@ -37,6 +50,8 @@ extends Node3D
 @export var merged_mesh: ArrayMesh
 ## Name of the node that holds the merged copy of the model.
 @export var merged_mesh_name: String = "ModelMerged"
+## Name of the node that holds the baked navigation mesh.
+@export var nav_region_name: String = "ModelNavigation"
 
 var _fallback_material: StandardMaterial3D = null
 
@@ -60,6 +75,8 @@ func _ready() -> void:
 			parts.append(mesh_instance)
 
 	_build_colliders(parent, parts, to_parent)
+	if build_navigation:
+		_build_navigation.call_deferred(parent)
 
 	if merged_mesh != null:
 		_use_merged_mesh(parent, parts)
@@ -97,6 +114,42 @@ func _build_colliders(parent: Node3D, parts: Array[MeshInstance3D], to_parent: T
 	# The scene root may still be assembling its children while this runs, so
 	# the body is attached once setup settles.
 	parent.add_child.call_deferred(body)
+
+
+## Bakes a navigation mesh from the generated colliders and hands it to a
+## NavigationRegion3D on the map root. Waits one physics frame because the
+## collider body is added deferred.
+func _build_navigation(parent: Node3D) -> void:
+	await get_tree().physics_frame
+
+	var body := parent.get_node_or_null("ModelCollision") as StaticBody3D
+	if body == null:
+		push_warning("%s: no collider body to bake navigation from." % name)
+		return
+
+	var nav := NavigationMesh.new()
+	nav.cell_size = nav_cell_size
+	nav.cell_height = nav_cell_size
+	nav.agent_radius = nav_agent_radius
+	nav.agent_height = nav_agent_height
+	nav.agent_max_climb = 0.2
+	nav.agent_max_slope = nav_max_slope
+	nav.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	nav.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
+	nav.geometry_collision_mask = collision_layer
+
+	var source := NavigationMeshSourceGeometryData3D.new()
+	NavigationServer3D.parse_source_geometry_data(nav, source, body)
+	NavigationServer3D.bake_from_source_geometry_data(nav, source)
+
+	if nav.get_polygon_count() == 0:
+		push_warning("%s: navigation bake produced an empty mesh." % name)
+		return
+
+	var region := NavigationRegion3D.new()
+	region.name = nav_region_name
+	region.navigation_mesh = nav
+	parent.add_child(region)
 
 
 ## Shows the baked mesh in place of the thousands of imported parts.

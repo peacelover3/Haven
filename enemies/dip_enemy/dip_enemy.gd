@@ -4,16 +4,21 @@ extends CharacterBody3D
 ##
 ## Behaviour:
 ##   IDLE      -> waits at its post.
-##   ENGAGE    -> holds its ground. It only shuffles slowly towards the player
-##                and never backs away, staying within `leash_radius` of its
-##                post the whole time.
+##   ENGAGE    -> walks a navigation path towards the player, at a slow shuffle
+##                and from any direction, stopping `stop_distance` short. The
+##                goal is clamped inside `move_range` of its post, so it can
+##                never wander off. Paths come from the map's baked navigation
+##                mesh (see map/map_collision.gd), so parts in the way are
+##                walked around instead of blocking it. Without a navigation
+##                map it falls back to walking straight at the player.
 ##   CHARGE    -> holds still, faces the player and builds up a shot for
 ##                `charge_time` (the visual pulses).
 ##   RETURNING -> the player escaped; walks back to its post.
 ##   DEAD      -> health reached zero; stops acting and despawns.
 ##
-## It is a gun emplacement, not a chaser: it shoots only what it can actually
-## see (see `_has_clear_path`) inside `attack_range`, and then only once every
+## It is a gun emplacement rather than a brawler: it follows slowly, stays
+## within `move_range` of where it started, and shoots only what it can actually
+## see (see `_has_clear_path`) inside `attack_range`, then only once every
 ## `attack_cooldown`. Shots are slow but hit hard: `projectile_damage` is far
 ## above the transistor enemy's bolt, and the bolt itself is the big heavy one
 ## from `heavy_bolt.tscn`. Damage is dealt by the projectile calling
@@ -29,30 +34,31 @@ signal died
 enum State { IDLE, ENGAGE, CHARGE, RETURNING, DEAD }
 
 @export_group("Detection")
-@export var detection_radius: float = 14.0
+## It notices the player within this distance and starts following.
+@export var detection_radius: float = 3.5
 ## Once engaged, the enemy only gives up beyond this distance.
-@export var lose_target_radius: float = 18.0
+@export var lose_target_radius: float = 5.0
 @export var player_group: StringName = &"player"
 @export var player_path: NodePath
 @export var scan_interval: float = 0.25
 
 @export_group("Movement")
+@export var navigation_agent_path: NodePath = ^"NavigationAgent3D"
 @export var return_speed: float = 2.4
 @export var acceleration: float = 16.0
 @export var turn_speed: float = 7.0
 @export var gravity_scale: float = 1.0
-## Range it tries to sit at while shooting. It only ever closes in towards
-## this range; it never backs away from the player.
-@export var preferred_distance: float = 5.0
+## How close it walks to the player before it stops closing in.
+@export var stop_distance: float = 2.0
+## How far it may roam from where it started. It always walks back into this
+## range, so it can follow in every direction but never wanders off.
+@export var move_range: float = 2.5
 ## How fast it shuffles towards the player, in metres per second. Keep this
-## slow so it stays put instead of chasing.
-@export var shuffle_speed: float = 1.1
-## How far from its post it may wander. Once it has shuffled this far it stops
-## and just keeps shooting.
-@export var leash_radius: float = 1.5
+## below the player's speed so it trails them instead of keeping up.
+@export var shuffle_speed: float = 1.8
 
 @export_group("Combat")
-@export var attack_range: float = 8.0
+@export var attack_range: float = 7.0
 @export var attack_cooldown: float = 2.6
 ## Telegraph time before the shot leaves the muzzle.
 @export var charge_time: float = 0.7
@@ -79,6 +85,8 @@ var health: float = 0.0
 
 var _charge_left: float = 0.0
 var _cooldown_left: float = 0.0
+var _nav_agent: NavigationAgent3D = null
+var _nav_goal: Vector3 = Vector3.INF
 var _scan_left: float = 0.0
 var _cached_player: Node3D = null
 var _muzzle: Node3D = null
@@ -94,6 +102,9 @@ func _ready() -> void:
 	health = max_health
 	_spawn_transform = global_transform
 	_muzzle = get_node_or_null(muzzle_path)
+	_nav_agent = get_node_or_null(navigation_agent_path) as NavigationAgent3D
+	if _nav_agent != null:
+		_nav_agent.max_speed = shuffle_speed
 	_visual = get_node_or_null(visual_path) as Node3D
 	if _visual != null:
 		_visual_scale = _visual.scale
@@ -261,15 +272,17 @@ func _process_engage(delta: float) -> void:
 
 	var flat_offset := _flat_offset_to(target.global_position)
 	var distance := flat_offset.length()
-	_face_direction(flat_offset, delta)
 
-	# Shuffle a little towards the player, but never away from it and never far
-	# from the post: this enemy is a fixed gun, not a chaser.
-	var from_post := _flat_offset_to(_spawn_transform.origin).length()
-	if distance > preferred_distance and from_post < leash_radius:
-		_move_flat(flat_offset.normalized(), shuffle_speed, delta)
+	# Follow from any direction, stopping `stop_distance` short, but never past
+	# `move_range` of the post: the goal is clamped into that circle.
+	if distance > stop_distance:
+		var goal := target.global_position - flat_offset / distance * stop_distance
+		goal = _clamp_to_post(goal)
+		if not _move_towards(goal, shuffle_speed, delta):
+			_face_direction(flat_offset, delta)
 	else:
 		_decelerate(delta)
+		_face_direction(flat_offset, delta)
 
 	# Only shoot what it can actually see, from inside its firing range.
 	if distance <= attack_range and _cooldown_left <= 0.0 and _has_clear_path(target.global_position):
@@ -305,8 +318,8 @@ func _process_return(delta: float) -> void:
 			_set_state(State.IDLE)
 		return
 
-	_face_direction(home_offset, delta)
-	_move_flat(home_offset.normalized(), return_speed, delta)
+	if not _move_towards(_spawn_transform.origin, return_speed, delta):
+		_face_direction(home_offset, delta)
 
 
 # --- Actions ---------------------------------------------------------------
@@ -351,6 +364,59 @@ func _update_pulse(delta: float) -> void:
 		_visual.scale = _visual_scale * (1.0 + charge_pulse * progress)
 	else:
 		_visual.scale = _visual.scale.lerp(_visual_scale, clampf(10.0 * delta, 0.0, 1.0))
+
+
+## True when there is still board underfoot half a metre ahead.
+func _has_floor_ahead(direction: Vector3) -> bool:
+	if direction.length_squared() < 0.0001:
+		return true
+	var from := global_position + direction.normalized() * 0.45 + Vector3.UP * 0.4
+	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 3.0)
+	query.collision_mask = 1
+	query.exclude = [get_rid()]
+	return not get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+## Next flat step towards `goal`, following the navigation mesh when there is
+## one. The goal only re-paths when it actually moves, so standing still costs
+## nothing.
+func _direction_to_goal(goal: Vector3) -> Vector3:
+	if _nav_agent != null and _nav_agent.get_navigation_map().is_valid():
+		if _nav_goal.distance_squared_to(goal) > 0.25:
+			_nav_goal = goal
+			_nav_agent.target_position = goal
+		var step := _flat_offset_to(_nav_agent.get_next_path_position())
+		if step.length_squared() > 0.0004:
+			return step.normalized()
+
+	var remaining := _flat_offset_to(goal)
+	if remaining.length_squared() < 0.0025:
+		return Vector3.ZERO
+	return remaining.normalized()
+
+
+## Walks towards `goal`. Returns false when it cannot move (arrived or blocked).
+func _move_towards(goal: Vector3, speed: float, delta: float) -> bool:
+	var direction := _direction_to_goal(goal)
+	if direction.length_squared() < 0.0001:
+		_decelerate(delta)
+		return false
+	# The board has hard edges; walking off one would drop it into the void.
+	if not _has_floor_ahead(direction):
+		_decelerate(delta)
+		return false
+	_move_flat(direction, speed, delta)
+	_face_direction(direction, delta)
+	return true
+
+
+## Keeps a point inside `move_range` of where the enemy started.
+func _clamp_to_post(point: Vector3) -> Vector3:
+	var home := _spawn_transform.origin
+	var from_home := Vector3(point.x - home.x, 0.0, point.z - home.z)
+	if from_home.length() > move_range:
+		from_home = from_home.normalized() * move_range
+	return Vector3(home.x + from_home.x, point.y, home.z + from_home.z)
 
 
 ## True when nothing blocks a shot at `point`. Checked at a few heights so low

@@ -19,9 +19,9 @@ height = 1.6
 script = ExtResource("1_dummy")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1389182808]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+transform = Transform3D(1, 0, 0, 0, 0.91580296, 0, 0, 0, 1, 0, 0.8, 0)
 shape = SubResource("CapsuleShape3D_dummy")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1575396001]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+transform = Transform3D(0.34012485, 0, 0, 0, 0.1813011, 0, 0, 0, 0.3514952, 0, 0.8, 0)
 mesh = SubResource("CapsuleMesh_dummy")
