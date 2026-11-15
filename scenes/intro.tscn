@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://cu7ed77238ggm"]
+
+[sub_resource type="VideoStreamTheora" id="VideoStreamTheora_yjqpq"]
+file = "test-vid.ogv"
+
+[node name="Node2D" type="Node2D" unique_id=1197843547]
+
+[node name="VideoStreamPlayer" type="VideoStreamPlayer" parent="." unique_id=554828791]
+offset_right = 1151.0
+offset_bottom = 647.0
+stream = SubResource("VideoStreamTheora_yjqpq")

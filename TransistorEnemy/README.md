@@ -87,10 +87,11 @@ Nothing happens if the method is missing — the bolt still disappears on impact
 
 | State | What happens |
 | --- | --- |
-| `IDLE` | Stands at its spawn point. |
-| `CHASE` | A player entered `detection_radius`; closes in to `stop_distance`. |
+| `IDLE` | Stands at its spawn point (enemies without a guard area). |
+| `WANDER` | Off duty: strolls between random spots inside its guard circle. |
+| `CHASE` | A player entered `detection_radius`; closes in to `stop_distance` without ever leaving its guard circle. |
 | `ATTACK` | Holds position, fires every `attack_cooldown` seconds. |
-| `RETURNING` | The player left the guard area / `lose_target_radius`; walks back to its post. |
+| `RETURNING` | The player left `lose_target_radius`; walks back into its guard circle. |
 | `DEAD` | Health reached 0; stops acting and despawns after `death_despawn_delay`. |
 
 `detection_radius` (start chasing) and `lose_target_radius` (give up) are
@@ -105,7 +106,14 @@ enemy flicker between states. Keep `lose_target_radius` the larger one.
 | --- | --- | --- |
 | `guard_radius` | 0.0 | Area it protects (m). `0` = no post, chase anywhere in detection range. |
 | `guard_point_path` | empty | Node used as the guard post. Defaults to the spawn point. |
-| `guard_release_margin` | 2.0 | Extra slack beyond `guard_radius` before the player is considered gone. |
+| `leash_radius` | 0.0 | How far its body may travel from the post while fighting (m). `0` = the guard circle itself. |
+
+**Wander**
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `wander_speed` | 1.1 | Speed while strolling around its post between fights. |
+| `wander_pause` | 1.6 | Seconds it stands still between wander legs. |
 
 **Detection**
 
@@ -162,10 +170,12 @@ enemy.guard_point_path = ^"../VaultMarker"
 
 With `guard_radius > 0` the enemy:
 
-- ignores players who are outside the radius, even within `detection_radius`;
-- returns to the post when a player it was chasing leaves the area
-  (`guard_release_margin` of slack prevents flicker at the edge);
-- otherwise chases and shoots exactly as usual.
+- attacks any player who comes within `detection_radius` of it, wherever they
+  are relative to the circle;
+- never leaves its circle: at the rim (`leash_radius`, the circle itself by
+  default) it holds position and keeps shooting from there;
+- returns to the circle and wanders around inside it whenever the player
+  leaves `lose_target_radius`.
 
 The demo `test/enemy_test.tscn` does not guard, but the main-map example below
 does. `get_guard_position()` and `is_inside_guard_area(point)` are public for

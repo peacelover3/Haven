@@ -31,6 +31,7 @@ height = 0.52
 
 [node name="EnergyProjectile" type="Node3D"]
 script = ExtResource("1_projectile")
+collision_mask = 5
 
 [node name="Core" type="MeshInstance3D" parent="."]
 mesh = SubResource("SphereMesh_core")

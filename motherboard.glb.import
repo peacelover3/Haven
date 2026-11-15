@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://clr5j2pw3vh5t"
-path="res://.godot/imported/transistors.glb-6cfbb0d5fb57df61b9c31b92a6e1ca90.scn"
+uid="uid://des7hq7ouhhex"
+path="res://.godot/imported/motherboard.glb-f4e3f66b83df47de21739ee2b164e56a.scn"
 
 [deps]
 
-source_file="res://models/transistors.glb"
-dest_files=["res://.godot/imported/transistors.glb-6cfbb0d5fb57df61b9c31b92a6e1ca90.scn"]
+source_file="res://motherboard.glb"
+dest_files=["res://.godot/imported/motherboard.glb-f4e3f66b83df47de21739ee2b164e56a.scn"]
 
 [params]
 

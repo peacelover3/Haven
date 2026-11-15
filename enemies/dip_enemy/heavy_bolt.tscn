@@ -34,6 +34,7 @@ script = ExtResource("1_projectile")
 speed = 15.0
 lifetime = 6.0
 damage = 34.0
+collision_mask = 5
 
 [node name="Core" type="MeshInstance3D" parent="."]
 mesh = SubResource("SphereMesh_core")

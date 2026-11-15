@@ -154,8 +154,10 @@ func _physics_process(delta: float) -> void:
 	if state == State.DASH:
 		_check_dash_hit()
 		# A body already touching a part ends its dash on the first frame unless
-		# we look at whether the charge actually made progress.
-		if state == State.DASH and dash_time - _dash_left > 0.06 and _flat_speed(velocity) < dash_speed * 0.35:
+		# we look at whether the charge actually made progress. Compare against
+		# the velocity the physics server achieved, not the commanded one: the
+		# commanded dash velocity never drops, even when fully wedged.
+		if state == State.DASH and dash_time - _dash_left > 0.06 and _flat_speed(get_real_velocity()) < dash_speed * 0.35:
 			_end_dash()
 
 	_update_pulse(delta)

@@ -14,8 +14,11 @@ extends CharacterBody3D
 ##   DEAD      -> health reached zero; stops acting and despawns.
 ##
 ## Guarding: set `guard_radius` above zero and the enemy defends the area
-## around `guard_point_path` (or its spawn point): it only picks up targets
-## inside that radius and abandons them when they leave.`
+## around `guard_point_path` (or its spawn point). It attacks any player who
+## comes within `detection_radius`, but its own body never leaves the guard
+## circle: at the rim it holds position and keeps shooting from there. When
+## the player leaves `lose_target_radius` it walks back into its circle and
+## wanders around inside it until duty calls again.
 ##
 ## The player is found through the `player_group` group (or a fixed
 ## `player_path` when one is set), so no collision layers need to be wired up.
@@ -34,7 +37,7 @@ signal health_changed(current: float, maximum: float)
 signal damaged(amount: float)
 signal died
 
-enum State { IDLE, CHASE, ATTACK, RETURNING, DEAD }
+enum State { IDLE, CHASE, ATTACK, RETURNING, WANDER, DEAD }
 
 @export_group("Detection")
 ## Player is noticed within this distance, in metres.
@@ -50,15 +53,23 @@ enum State { IDLE, CHASE, ATTACK, RETURNING, DEAD }
 @export var scan_interval: float = 0.2
 
 @export_group("Guard")
-## Radius of the area this enemy protects, in metres. The enemy only engages
-## players inside it and returns to its post when they leave. 0 = guard no
-## particular area, chase anywhere within the detection range.
+## Radius of the area this enemy protects, in metres. The enemy attacks any
+## player within detection range, but its own body stays inside this circle
+## while fighting. 0 = guard no particular area, chase anywhere within the
+## detection range.
 @export var guard_radius: float = 0.0
 ## Optional node used as the guard post. Defaults to the spawn position.
 @export var guard_point_path: NodePath
-## Extra distance beyond `guard_radius` the player may stray before the enemy
-## gives up. Prevents flicker when the player walks along the boundary.
-@export var guard_release_margin: float = 2.0
+## How far the enemy's body may travel from its post while fighting, in
+## metres. 0 keeps it inside the guard circle itself, so a guarding enemy
+## holds its turf instead of being dragged across the map.
+@export var leash_radius: float = 0.0
+
+@export_group("Wander")
+## Speed used while strolling around its post between fights.
+@export var wander_speed: float = 1.1
+## Seconds it stands still between wander legs (randomized around this).
+@export var wander_pause: float = 1.6
 
 @export_group("Movement")
 ## Slightly faster than a typical player so the enemy can keep up when the
@@ -104,6 +115,10 @@ var _cached_player: Node3D = null
 var _muzzle: Node3D = null
 var _nav_agent: NavigationAgent3D = null
 var _guard_point: Node3D = null
+var _home_goal: Vector3 = Vector3.INF
+var _wander_pause_left: float = 0.0
+var _stuck_left: float = 0.0
+var _nav_goal: Vector3 = Vector3.INF
 var _spawn_transform: Transform3D
 var _gravity: float = 9.8
 var _dead: bool = false
@@ -118,6 +133,7 @@ func _ready() -> void:
 	_guard_point = get_node_or_null(guard_point_path) as Node3D
 	if not guard_point_path.is_empty() and _guard_point == null:
 		push_warning("%s: guard point '%s' not found, guarding the spawn point." % [name, guard_point_path])
+	_pick_home_goal()
 	if _muzzle == null:
 		push_warning("%s: muzzle node '%s' not found, shots will not spawn." % [name, muzzle_path])
 	if projectile_scene == null:
@@ -144,6 +160,8 @@ func _physics_process(delta: float) -> void:
 			_process_pursuit(delta)
 		State.RETURNING:
 			_process_return(delta)
+		State.WANDER:
+			_process_wander(delta)
 
 	_apply_gravity(delta)
 	move_and_slide()
@@ -168,6 +186,55 @@ func is_inside_guard_area(point: Vector3) -> bool:
 	var offset := point - get_guard_position()
 	offset.y = 0.0
 	return offset.length() <= guard_radius
+
+
+## Distance the body may stray from its post while fighting. Falls back to the
+## guard circle when `leash_radius` is not set explicitly.
+func _leash_radius() -> float:
+	if leash_radius > 0.0:
+		return leash_radius
+	return guard_radius
+
+
+## Radius of the area it strolls around while off duty (its guard circle).
+func _wander_radius() -> float:
+	if guard_radius <= 0.0:
+		return 0.0
+	return minf(guard_radius, _leash_radius())
+
+
+## Picks where the enemy walks when it has nothing to fight: a random point
+## inside its guard circle, or its spawn point when it guards no area.
+func _pick_home_goal() -> void:
+	var radius := _wander_radius()
+	if radius <= 0.0:
+		_home_goal = get_guard_position()
+		return
+	var angle := randf() * TAU
+	var distance := radius * randf_range(0.25, 0.9)
+	var offset := Vector3(cos(angle) * distance, 0.0, sin(angle) * distance)
+	_home_goal = get_guard_position() + offset
+
+
+## Keeps a movement direction from carrying the body past its leash: once at
+## the edge, the outward component is cut so it slides along the rim instead
+## of leaving its circle. Unlimited when no guard area is set.
+func _clamp_to_guard_area(direction: Vector3) -> Vector3:
+	var leash := _leash_radius()
+	if leash <= 0.0 or direction.length_squared() < 0.0001:
+		return direction
+	var from_home := global_position - get_guard_position()
+	from_home.y = 0.0
+	var distance_home := from_home.length()
+	if distance_home < leash - 0.05:
+		return direction
+	var outward := from_home / maxf(distance_home, 0.0001)
+	if direction.dot(outward) <= 0.0:
+		return direction
+	var tangential := direction - outward * direction.dot(outward)
+	if tangential.length_squared() < 0.0001:
+		return Vector3.ZERO
+	return tangential.normalized()
 
 
 # --- Health ----------------------------------------------------------------
@@ -214,17 +281,15 @@ func _update_target(delta: float) -> void:
 		target = null
 
 	if target == null:
-		if player != null and _flat_distance_to(player) <= detection_radius and is_inside_guard_area(player.global_position):
+		if player != null and _flat_distance_to(player) <= detection_radius:
 			_acquire(player)
-		elif state != State.RETURNING and state != State.IDLE:
+		elif state != State.RETURNING and state != State.IDLE and state != State.WANDER:
+			_pick_home_goal()
 			_set_state(State.RETURNING)
 	else:
 		if player == null:
 			_release(false)
 		elif target == player and _flat_distance_to(player) > lose_target_radius:
-			_release(true)
-		elif target == player and guard_radius > 0.0 and not _inside_guard_area_with_margin(player.global_position):
-			# The player escaped the protected area; go back on duty.
 			_release(true)
 
 
@@ -253,12 +318,6 @@ func _resolve_player(delta: float) -> Node3D:
 	return nearest
 
 
-func _inside_guard_area_with_margin(point: Vector3) -> bool:
-	var offset := point - get_guard_position()
-	offset.y = 0.0
-	return offset.length() <= guard_radius + maxf(guard_release_margin, 0.0)
-
-
 func _acquire(player: Node3D) -> void:
 	if target == player:
 		return
@@ -272,6 +331,7 @@ func _release(announce: bool) -> void:
 	_cached_player = null
 	if announce:
 		player_lost.emit()
+	_pick_home_goal()
 	if state != State.RETURNING:
 		_set_state(State.RETURNING)
 
@@ -296,6 +356,7 @@ func set_target(player: Node3D) -> void:
 
 func _process_pursuit(delta: float) -> void:
 	if target == null:
+		_pick_home_goal()
 		_set_state(State.RETURNING)
 		return
 
@@ -304,34 +365,81 @@ func _process_pursuit(delta: float) -> void:
 	var distance := flat_offset.length()
 
 	var direction := _steer_towards(target.global_position, flat_offset.normalized())
-	_face_direction(direction, delta)
+	var move_direction := _clamp_to_guard_area(direction)
+	if move_direction.length_squared() > 0.0001:
+		_face_direction(move_direction, delta)
+	else:
+		# Held at the rim and nowhere to slide: keep looking at the player.
+		_face_direction(flat_offset.normalized(), delta)
 
-	if distance > stop_distance:
-		_move_flat(direction, chase_speed, delta)
+	if distance > stop_distance and move_direction.length_squared() > 0.0001:
+		_move_flat(move_direction, chase_speed, delta)
 		_set_state(State.CHASE)
 	else:
 		_decelerate(delta)
-		_set_state(State.ATTACK)
+		if distance <= stop_distance:
+			_set_state(State.ATTACK)
 
 	if distance <= maxf(attack_range, stop_distance) and _attack_cooldown_left <= 0.0:
 		_fire()
 
 
 func _process_return(delta: float) -> void:
-	var home := get_guard_position()
-	var home_offset := home - global_position
-	home_offset.y = 0.0
+	var goal_offset := _home_goal - global_position
+	goal_offset.y = 0.0
 
-	if home_offset.length() <= 0.5:
+	if goal_offset.length() <= 0.35:
 		_decelerate(delta)
-		rotation.y = lerp_angle(rotation.y, _spawn_transform.basis.get_euler().y, clampf(turn_speed * delta, 0.0, 1.0))
-		if absf(angle_difference(rotation.y, _spawn_transform.basis.get_euler().y)) < 0.05:
-			_set_state(State.IDLE)
+		if _wander_radius() > 0.0:
+			_wander_pause_left = randf_range(0.6, 1.4) * maxf(wander_pause, 0.01)
+			_set_state(State.WANDER)
+		else:
+			rotation.y = lerp_angle(rotation.y, _spawn_transform.basis.get_euler().y, clampf(turn_speed * delta, 0.0, 1.0))
+			if absf(angle_difference(rotation.y, _spawn_transform.basis.get_euler().y)) < 0.05:
+				_set_state(State.IDLE)
 		return
 
-	var direction := _steer_towards(home, home_offset.normalized())
+	var direction := _steer_towards(_home_goal, goal_offset.normalized())
+	direction = _clamp_to_guard_area(direction)
 	_face_direction(direction, delta)
 	_move_flat(direction, return_speed, delta)
+	_unstick_watchdog(delta)
+
+
+## Off duty: stroll between random spots inside its guard circle, pausing in
+## between, until the player comes back into detection range.
+func _process_wander(delta: float) -> void:
+	var goal_offset := _home_goal - global_position
+	goal_offset.y = 0.0
+
+	if goal_offset.length() <= 0.25:
+		_decelerate(delta)
+		_wander_pause_left -= delta
+		if _wander_pause_left <= 0.0:
+			_pick_home_goal()
+		return
+
+	var direction := _steer_towards(_home_goal, goal_offset.normalized())
+	direction = _clamp_to_guard_area(direction)
+	_face_direction(direction, delta)
+	_move_flat(direction, wander_speed, delta)
+	_unstick_watchdog(delta)
+
+
+## If the body got wedged on the way somewhere and is not actually moving,
+## pick a new goal instead of grinding against a part forever.
+func _unstick_watchdog(delta: float) -> void:
+	if _flat_speed(get_real_velocity()) < 0.15:
+		_stuck_left += delta
+		if _stuck_left > 1.5:
+			_stuck_left = 0.0
+			_pick_home_goal()
+	else:
+		_stuck_left = 0.0
+
+
+func _flat_speed(velocity_3d: Vector3) -> float:
+	return Vector2(velocity_3d.x, velocity_3d.z).length()
 
 
 # --- Actions ---------------------------------------------------------------
@@ -379,7 +487,11 @@ func _steer_towards(point: Vector3, fallback: Vector3) -> Vector3:
 	if not map.is_valid() or NavigationServer3D.map_get_iteration_id(map) == 0:
 		return fallback
 
-	_nav_agent.target_position = point
+	# Re-path only when the goal moved noticeably; querying the navigation
+	# server every physics frame is wasteful on large nav meshes.
+	if _nav_goal.distance_squared_to(point) > 0.25:
+		_nav_goal = point
+		_nav_agent.target_position = point
 	if _nav_agent.is_navigation_finished():
 		return fallback
 

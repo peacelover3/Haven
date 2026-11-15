@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="New Game Project"
+config/name="JansenJHuang"
 run/main_scene="res://map/haven_map.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
@@ -23,6 +23,12 @@ window/stretch/aspect="expand"
 [physics]
 
 3d/physics_engine="Jolt Physics"
+
+[layer_names]
+
+3d_physics/layer_1="world"
+3d_physics/layer_2="enemies"
+3d_physics/layer_4="player"
 
 [rendering]
 
