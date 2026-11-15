@@ -5,11 +5,12 @@ extends SceneTree
 ## Run after changing the map model:
 ##   godot --headless --path . --script res://tools/bake_map.gd
 ##
-## It writes res://map/haven_map_merged.res, the one-surface-per-material copy
-## the map scene renders instead of the ~10k separate imported parts.
+## It writes res://map/motherboard_map_merged.res, the one-surface-per-material
+## copy the map scene renders instead of the thousands of separate imported
+## parts.
 
 const SCENE_PATH := "res://map/haven_map.tscn"
-const OUTPUT_PATH := "res://map/haven_map_merged.res"
+const OUTPUT_PATH := "res://map/motherboard_map_merged.res"
 
 var _scene: Node3D
 var _frame := 0

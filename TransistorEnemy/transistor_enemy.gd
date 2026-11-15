@@ -166,6 +166,10 @@ func _physics_process(delta: float) -> void:
 	_apply_gravity(delta)
 	move_and_slide()
 
+	if global_position.y < -20.0:
+		global_position = _spawn_transform.origin
+		velocity = Vector3.ZERO
+
 
 func is_alive() -> bool:
 	return not _dead

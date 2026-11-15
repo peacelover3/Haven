@@ -1,13 +1,14 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=22 format=3]
 
-[ext_resource type="PackedScene" path="res://haven map.glb" id="1_map"]
+[ext_resource type="PackedScene" path="res://motherboard_editable.glb" id="1_map"]
 [ext_resource type="Script" path="res://map/map_collision.gd" id="2_collision"]
 [ext_resource type="Script" path="res://map/map_player.gd" id="3_player"]
 [ext_resource type="PackedScene" path="res://TransistorEnemy/transistor_enemy.tscn" id="4_enemy"]
 [ext_resource type="PackedScene" path="res://map/small_energy_bolt.tscn" id="5_bolt"]
 [ext_resource type="PackedScene" path="res://enemies/charger_enemy/charger_enemy.tscn" id="6_charger"]
 [ext_resource type="PackedScene" path="res://enemies/dip_enemy/dip_enemy.tscn" id="7_dip"]
-[ext_resource type="ArrayMesh" path="res://map/haven_map_merged.res" id="8_merged"]
+[ext_resource type="ArrayMesh" path="res://map/motherboard_map_merged.res" id="8_merged"]
+[ext_resource type="Script" path="res://map/stock_graph.gd" id="9_stock"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_horizon_color = Color(0.13, 0.16, 0.24, 1)
@@ -88,7 +89,7 @@ shadow_enabled = true
 directional_shadow_max_distance = 60.0
 
 [node name="Model" parent="." instance=ExtResource("1_map")]
-transform = Transform3D(350, 0, 0, 0, 0, 350, 0, -350, 0, -36.05, -0.175, -24.5)
+transform = Transform3D(0.14, 0, 0, 0, 0.14, 0, 0, 0, 0.14, -11.2, 0, 7.84)
 script = ExtResource("2_collision")
 min_part_size = 0.25
 min_part_thickness = 0.02
@@ -162,3 +163,16 @@ guard_radius = 3.0
 
 [node name="DipEnemy" parent="." instance=ExtResource("7_dip")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 0.8, 6)
+
+[node name="StockLayer" type="CanvasLayer" parent="."]
+
+[node name="StockGraph" type="Control" parent="StockLayer"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -292.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 168.0
+grow_horizontal = 0
+mouse_filter = 2
+script = ExtResource("9_stock")

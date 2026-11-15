@@ -7,6 +7,9 @@ extends CharacterBody3D
 ## It prints health and respawns when it reaches zero or when it somehow leaves
 ## the board.
 
+signal hurt(amount: float)
+signal died
+
 @export var move_speed: float = 6.0
 @export var max_health: float = 100.0
 @export var gravity: float = 9.8
@@ -62,11 +65,15 @@ func _physics_process(delta: float) -> void:
 
 
 func take_damage(amount: float) -> void:
+	if amount <= 0.0:
+		return
 	health -= amount
+	hurt.emit(amount)
 	print("Player hit for ", amount, " (health ", health, "/", max_health, ")")
 	if health <= 0.0:
 		print("Player destroyed, respawning.")
 		health = max_health
+		died.emit()
 		_respawn()
 
 
